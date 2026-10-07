@@ -349,6 +349,52 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
         EditorGUILayout.EndHorizontal();
     }
 
+
+    private bool TryAutoDiscoverTrk()
+    {
+        if (string.IsNullOrEmpty(ganiPath) || !File.Exists(ganiPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            string folder = Path.GetDirectoryName(ganiPath);
+            string stem = Path.GetFileNameWithoutExtension(ganiPath);
+
+            string direct = Path.Combine(folder, stem + ".trk");
+            if (File.Exists(direct))
+            {
+                trkPath = direct;
+                return true;
+            }
+
+            string[] candidates = Directory.GetFiles(folder, "*.trk", SearchOption.TopDirectoryOnly);
+            if (candidates.Length == 1)
+            {
+                trkPath = candidates[0];
+                return true;
+            }
+
+            string normalizedStem = stem.ToLowerInvariant();
+            foreach (string candidate in candidates)
+            {
+                string name = Path.GetFileNameWithoutExtension(candidate).ToLowerInvariant();
+                if (name.Contains(normalizedStem) || normalizedStem.Contains(name))
+                {
+                    trkPath = candidate;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Keep manual selection available if discovery fails.
+        }
+
+        return false;
+    }
+
     private void BuildClip()
     {
         if (!ValidateInputs())
@@ -625,9 +671,15 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
         if (string.IsNullOrEmpty(trkPath) ||
             !File.Exists(trkPath))
         {
+            TryAutoDiscoverTrk();
+        }
+
+        if (string.IsNullOrEmpty(trkPath) ||
+            !File.Exists(trkPath))
+        {
             EditorUtility.DisplayDialog(
                 "GANI Full Body Rotation",
-                "Select a valid .trk file.",
+                "A matching .trk file was not found automatically. Select it manually.",
                 "OK"
             );
             return false;
