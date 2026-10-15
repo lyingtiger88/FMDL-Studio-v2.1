@@ -359,37 +359,108 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
 
         try
         {
+            byte[] ganiData = File.ReadAllBytes(ganiPath);
             string folder = Path.GetDirectoryName(ganiPath);
             string stem = Path.GetFileNameWithoutExtension(ganiPath);
-
-            string direct = Path.Combine(folder, stem + ".trk");
-            if (File.Exists(direct))
-            {
-                trkPath = direct;
-                return true;
-            }
-
-            string[] candidates = Directory.GetFiles(folder, "*.trk", SearchOption.TopDirectoryOnly);
-            if (candidates.Length == 1)
-            {
-                trkPath = candidates[0];
-                return true;
-            }
-
             string normalizedStem = stem.ToLowerInvariant();
+
+            string[] candidates =
+                Directory.GetFiles(
+                    folder,
+                    "*.trk",
+                    SearchOption.TopDirectoryOnly
+                );
+
+            string bestPath = null;
+            int bestScore = int.MinValue;
+            int compatibleCount = 0;
+
             foreach (string candidate in candidates)
             {
-                string name = Path.GetFileNameWithoutExtension(candidate).ToLowerInvariant();
-                if (name.Contains(normalizedStem) || normalizedStem.Contains(name))
+                try
                 {
-                    trkPath = candidate;
-                    return true;
+                    TrkLayout candidateLayout =
+                        ParseTrk(
+                            File.ReadAllBytes(candidate)
+                        );
+
+                    MiniGani candidateMini =
+                        ParseMiniGani(
+                            ganiData,
+                            candidateLayout
+                        );
+
+                    // Structural compatibility matters here. FrameCount is only
+                    // a tie-breaker because the same TRK layout is reused by
+                    // clips with different lengths.
+                    ValidateKnownHumanLayout(
+                        candidateLayout,
+                        candidateMini,
+                        false
+                    );
+
+                    compatibleCount++;
+
+                    int score = 0;
+                    string candidateStem =
+                        Path.GetFileNameWithoutExtension(candidate);
+
+                    string normalizedCandidate =
+                        candidateStem.ToLowerInvariant();
+
+                    if (string.Equals(
+                        candidateStem,
+                        stem,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        score += 1000;
+                    }
+
+                    if (candidateLayout.FrameCount ==
+                        candidateMini.FrameCount)
+                    {
+                        score += 100;
+                    }
+
+                    if (normalizedCandidate.Contains(normalizedStem) ||
+                        normalizedStem.Contains(normalizedCandidate))
+                    {
+                        score += 10;
+                    }
+
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestPath = candidate;
+                    }
+                }
+                catch
+                {
+                    // Not structurally compatible with this GANI.
                 }
             }
+
+            if (!string.IsNullOrEmpty(bestPath))
+            {
+                trkPath = bestPath;
+
+                Debug.Log(
+                    "GANI TRK auto-discovery selected '" +
+                    Path.GetFileName(bestPath) +
+                    "' from " +
+                    compatibleCount +
+                    " structurally compatible candidate(s)."
+                );
+
+                return true;
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // Keep manual selection available if discovery fails.
+            Debug.LogWarning(
+                "GANI TRK auto-discovery failed: " +
+                ex.Message
+            );
         }
 
         return false;
@@ -1042,16 +1113,19 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
 
     private void ValidateKnownHumanLayout(
         TrkLayout layout,
-        MiniGani mini)
+        MiniGani mini,
+        bool logFrameCountDifference = true)
     {
         if (layout.FrameCount !=
-            mini.FrameCount)
+            mini.FrameCount &&
+            logFrameCountDifference)
         {
-            throw new Exception(
-                "TRK/GANI FrameCount mismatch. TRK=" +
+            Debug.LogWarning(
+                "TRK/GANI FrameCount differs (TRK=" +
                 layout.FrameCount +
                 ", GANI=" +
-                mini.FrameCount
+                mini.FrameCount +
+                "). This is allowed: TRK supplies the track layout; GANI FrameCount controls clip decoding."
             );
         }
 
@@ -1067,6 +1141,8 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
                 "."
             );
         }
+
+        ValidateSegmentBitSizes(layout, mini);
 
         if (layout.Units[1].SegmentCount < 2)
         {
@@ -1173,6 +1249,56 @@ public class GANIType2FullBodyRotationAxisFix : EditorWindow
                 SegmentQuat,
                 "U17 segment " + i
             );
+        }
+    }
+
+
+    private void ValidateSegmentBitSizes(
+        TrkLayout layout,
+        MiniGani mini)
+    {
+        if (layout.SegmentsById == null ||
+            mini.SegmentHeaders == null ||
+            layout.SegmentsById.Length != layout.SegmentCount ||
+            mini.SegmentHeaders.Length != layout.SegmentCount)
+        {
+            throw new Exception(
+                "TRK/GANI segment tables are incomplete or have different sizes."
+            );
+        }
+
+        for (int i = 0;
+             i < layout.SegmentCount;
+             i++)
+        {
+            TrkSegment trkSegment =
+                layout.SegmentsById[i];
+
+            GaniSegmentHeader header =
+                mini.SegmentHeaders[i];
+
+            if (trkSegment == null ||
+                header == null)
+            {
+                throw new Exception(
+                    "TRK/GANI segment table contains a missing entry at S" +
+                    i.ToString("D2") +
+                    "."
+                );
+            }
+
+            if (header.ComponentBitSize !=
+                trkSegment.ComponentBitSize)
+            {
+                throw new Exception(
+                    "TRK layout is not compatible with this GANI. Bit-size mismatch on S" +
+                    i.ToString("D2") +
+                    ": TRK=" +
+                    trkSegment.ComponentBitSize +
+                    ", GANI=" +
+                    header.ComponentBitSize
+                );
+            }
         }
     }
 
