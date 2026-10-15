@@ -982,11 +982,12 @@ public class GANIType2FullBodyRotation : EditorWindow
         if (layout.FrameCount !=
             mini.FrameCount)
         {
-            throw new Exception(
-                "TRK/GANI FrameCount mismatch. TRK=" +
+            Debug.LogWarning(
+                "TRK/GANI FrameCount differs (TRK=" +
                 layout.FrameCount +
                 ", GANI=" +
-                mini.FrameCount
+                mini.FrameCount +
+                "). This is allowed: TRK supplies the track layout; GANI FrameCount controls clip decoding."
             );
         }
 
@@ -1002,6 +1003,8 @@ public class GANIType2FullBodyRotation : EditorWindow
                 "."
             );
         }
+
+        ValidateSegmentBitSizes(layout, mini);
 
         if (layout.Units[1].SegmentCount < 2)
         {
@@ -1108,6 +1111,56 @@ public class GANIType2FullBodyRotation : EditorWindow
                 SegmentQuat,
                 "U17 segment " + i
             );
+        }
+    }
+
+
+    private void ValidateSegmentBitSizes(
+        TrkLayout layout,
+        MiniGani mini)
+    {
+        if (layout.SegmentsById == null ||
+            mini.SegmentHeaders == null ||
+            layout.SegmentsById.Length != layout.SegmentCount ||
+            mini.SegmentHeaders.Length != layout.SegmentCount)
+        {
+            throw new Exception(
+                "TRK/GANI segment tables are incomplete or have different sizes."
+            );
+        }
+
+        for (int i = 0;
+             i < layout.SegmentCount;
+             i++)
+        {
+            TrkSegment trkSegment =
+                layout.SegmentsById[i];
+
+            GaniSegmentHeader header =
+                mini.SegmentHeaders[i];
+
+            if (trkSegment == null ||
+                header == null)
+            {
+                throw new Exception(
+                    "TRK/GANI segment table contains a missing entry at S" +
+                    i.ToString("D2") +
+                    "."
+                );
+            }
+
+            if (header.ComponentBitSize !=
+                trkSegment.ComponentBitSize)
+            {
+                throw new Exception(
+                    "TRK layout is not compatible with this GANI. Bit-size mismatch on S" +
+                    i.ToString("D2") +
+                    ": TRK=" +
+                    trkSegment.ComponentBitSize +
+                    ", GANI=" +
+                    header.ComponentBitSize
+                );
+            }
         }
     }
 
