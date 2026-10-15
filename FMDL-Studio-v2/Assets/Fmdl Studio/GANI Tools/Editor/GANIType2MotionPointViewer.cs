@@ -849,9 +849,10 @@ public class GANIType2MotionPointViewer : EditorWindow
     {
         if (l.FrameCount != g.FrameCount)
         {
-            throw new Exception(
-                "TRK/GANI FrameCount mismatch. TRK=" + l.FrameCount +
-                ", GANI=" + g.FrameCount
+            Debug.LogWarning(
+                "TRK/GANI FrameCount differs (TRK=" + l.FrameCount +
+                ", GANI=" + g.FrameCount +
+                "). This is allowed: TRK supplies the track layout; GANI FrameCount controls preview decoding."
             );
         }
 
@@ -863,11 +864,53 @@ public class GANIType2MotionPointViewer : EditorWindow
             );
         }
 
+        ValidateSegmentBitSizes(l, g);
+
         RequireVector3(l.Units[1].Segments[1], "U01.S1");
         RequireVector3(l.Units[6].Segments[1], "U06.S1");
         RequireVector3(l.Units[8].Segments[1], "U08.S1");
         RequireVector3(l.Units[10].Segments[0], "U10.S0");
         RequireVector3(l.Units[12].Segments[0], "U12.S0");
+    }
+
+
+    private void ValidateSegmentBitSizes(
+        TrkLayout l,
+        MiniGani g)
+    {
+        if (l.SegmentsById == null ||
+            g.SegmentHeaders == null ||
+            l.SegmentsById.Length != l.SegmentCount ||
+            g.SegmentHeaders.Length != l.SegmentCount)
+        {
+            throw new Exception(
+                "TRK/GANI segment tables are incomplete or have different sizes."
+            );
+        }
+
+        for (int i = 0; i < l.SegmentCount; i++)
+        {
+            TrkSegment trkSegment = l.SegmentsById[i];
+            GaniSegmentHeader header = g.SegmentHeaders[i];
+
+            if (trkSegment == null || header == null)
+            {
+                throw new Exception(
+                    "TRK/GANI segment table contains a missing entry at S" +
+                    i.ToString("D2") + "."
+                );
+            }
+
+            if (header.ComponentBitSize != trkSegment.ComponentBitSize)
+            {
+                throw new Exception(
+                    "TRK layout is not compatible with this GANI. Bit-size mismatch on S" +
+                    i.ToString("D2") +
+                    ": TRK=" + trkSegment.ComponentBitSize +
+                    ", GANI=" + header.ComponentBitSize
+                );
+            }
+        }
     }
 
     private void RequireVector3(TrkSegment segment, string label)
